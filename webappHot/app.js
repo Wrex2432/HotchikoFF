@@ -1,5 +1,5 @@
 const API_BASE = localStorage.getItem("facechinko_api_base") || `${location.protocol}//${location.hostname}:3000`;
-const WS_BASE = localStorage.getItem("facechinko_ws_base") || `${location.protocol === "https:" ? "wss" : "ws"}://${location.hostname}:3000`;
+const WS_BASE = localStorage.getItem("facechinko_ws_base") || "wss://api.prologuebymetama.com/ws";
 const ASSET_BASE = localStorage.getItem("facechinko_asset_base") || "assets";
 
 const TEAMS = [
