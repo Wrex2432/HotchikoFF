@@ -10,21 +10,77 @@ public class RaceBall : MonoBehaviour
     public bool hasFinished;
     public int finishRank = -1;
 
+    [Header("Backend Identity")]
+    public string uid;
+    public string playerName;
+    public int teamIndex;
+    public string teamImageFileName;
+
     [HideInInspector] public Rigidbody2D rb;
     [HideInInspector] public Collider2D col;
+
+    private SpriteRenderer spriteRenderer;
+
+    private static readonly Color[] TeamColors = new Color[]
+    {
+        new(1.00f,0.65f,0.00f), new(0.00f,0.50f,0.00f), new(0.00f,0.00f,1.00f), new(0.50f,0.00f,0.50f),
+        new(1.00f,0.87f,0.00f), new(0.29f,0.00f,0.51f), new(0.00f,0.66f,0.42f), new(1.00f,0.94f,0.84f),
+        new(0.25f,0.41f,0.88f), new(0.96f,0.82f,0.24f), new(0.20f,0.80f,0.20f), new(0.54f,0.81f,0.94f),
+        new(1.00f,0.00f,0.00f)
+    };
+
+    private static readonly string[] TeamImageNames = new string[]
+    {
+        "TeamDana&Greggy",
+        "TeamMond&Saeid",
+        "TeamJill&Alvin",
+        "TeamSam&Ninya",
+        "TeamYnna",
+        "TeamJasper",
+        "TeamJordy",
+        "MEDIA",
+        "STRAT",
+        "HR&ADMIN",
+        "FINANCE",
+        "TeamMicco",
+        "TeamBev"
+    };
 
     private void Awake()
     {
         rb = GetComponent<Rigidbody2D>();
         col = GetComponent<Collider2D>();
+        spriteRenderer = GetComponentInChildren<SpriteRenderer>();
+        if (spriteRenderer == null) spriteRenderer = GetComponent<SpriteRenderer>();
     }
 
-    public void Init(int id)
+    public void Init(int id, string newUid = "", string newPlayerName = "", int newTeamIndex = 0)
     {
         ballId = id;
-        ballName = $"Ball {id + 1}";
+        uid = newUid;
+        playerName = string.IsNullOrWhiteSpace(newPlayerName) ? $"Player {id + 1}" : newPlayerName;
+        teamIndex = Mathf.Clamp(newTeamIndex, 0, TeamColors.Length - 1);
+        teamImageFileName = TeamImageNames[teamIndex] + ".png";
+
+        ballName = !string.IsNullOrWhiteSpace(uid)
+            ? $"{playerName} ({uid})"
+            : $"Ball {id + 1}";
+
         hasFinished = false;
         finishRank = -1;
         gameObject.name = ballName;
+
+        if (spriteRenderer != null)
+        {
+            spriteRenderer.color = TeamColors[teamIndex];
+
+            // Optional sprite lookup: put placeholders under Resources/team-balls/
+            // with names matching TeamImageNames entries above (without .png).
+            var maybeSprite = Resources.Load<Sprite>($"team-balls/{TeamImageNames[teamIndex]}");
+            if (maybeSprite != null)
+            {
+                spriteRenderer.sprite = maybeSprite;
+            }
+        }
     }
 }
