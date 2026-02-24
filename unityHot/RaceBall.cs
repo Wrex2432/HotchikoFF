@@ -83,9 +83,8 @@ public class RaceBall : MonoBehaviour
 
         if (spriteRenderer != null)
         {
-            spriteRenderer.color = TeamColors[teamIndex];
-
-            ApplyTeamSprite(teamIndex);
+            var hasTeamSprite = ApplyTeamSprite(teamIndex);
+            spriteRenderer.color = hasTeamSprite ? Color.white : TeamColors[teamIndex];
         }
     }
 
@@ -103,7 +102,7 @@ public class RaceBall : MonoBehaviour
         return TeamImageNames[index] + ".png";
     }
 
-    private void ApplyTeamSprite(int index)
+    private bool ApplyTeamSprite(int index)
     {
         if (index >= 0 && index < teamVisualOverrides.Length)
         {
@@ -111,7 +110,7 @@ public class RaceBall : MonoBehaviour
             if (inspectorSprite != null)
             {
                 spriteRenderer.sprite = inspectorSprite;
-                return;
+                return true;
             }
         }
 
@@ -120,6 +119,10 @@ public class RaceBall : MonoBehaviour
         if (maybeSprite != null)
         {
             spriteRenderer.sprite = maybeSprite;
+            return true;
         }
+
+        spriteRenderer.sprite = null;
+        return false;
     }
 }

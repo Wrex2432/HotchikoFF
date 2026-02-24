@@ -32,7 +32,7 @@ function teamImageUrl(imageFile) {
 
 function applyBallVisual(circleNode, imageNode, team) {
   const url = teamImageUrl(team.imageFile);
-  circleNode.style.backgroundColor = team.color;
+  circleNode.style.backgroundColor = url ? "transparent" : team.color;
 
   if (!url) {
     imageNode.classList.add("hidden");
