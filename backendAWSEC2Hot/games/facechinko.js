@@ -64,6 +64,30 @@ async function uploadJsonToS3({ bucket, key, bodyObj }) {
   }
 }
 
+function teamPowerState(st, teamIndex) {
+  if (!st.teamPower || !st.teamPower[teamIndex]) {
+    st.teamPower = st.teamPower || {};
+    st.teamPower[teamIndex] = {
+      available: false,
+      used: false,
+      powerId: null,
+      activationCount: 0,
+      grantedAt: null,
+      consumedAt: null,
+    };
+  }
+  return st.teamPower[teamIndex];
+}
+
+function teamPlayerCounts(st) {
+  const counts = {};
+  for (let i = 0; i < FACECHINKO_TEAMS.length; i++) {
+    const team = FACECHINKO_TEAMS[i];
+    counts[team.name] = Object.values(st.playersByUid).filter((p) => p.teamIndex === i).length;
+  }
+  return counts;
+}
+
 function ensureState(session) {
   if (!session.state || typeof session.state !== "object") session.state = {};
   const st = session.state;
@@ -83,6 +107,7 @@ function ensureState(session) {
   if (!st.winningTeamIndex && st.winningTeamIndex !== 0) st.winningTeamIndex = null;
   if (!st.startedAt) st.startedAt = null;
   if (!st.endedAt) st.endedAt = null;
+  if (!st.teamPower) st.teamPower = {};
 
   return st;
 }
@@ -110,6 +135,7 @@ function rosterSnapshot(session) {
     players: Object.values(st.playersByUid)
       .filter((p) => p.teamIndex === i)
       .map((p) => ({ uid: p.uid, name: p.name })),
+    power: teamPowerState(st, i),
   }));
   return {
     code: session.code,
@@ -131,7 +157,6 @@ function upsertPlayer(st, player) {
 
   const existing = st.playersByUid[uid] || null;
 
-  // IMPORTANT: Preserve existing teamIndex unless caller explicitly provided one.
   const hasIncomingTeam = Number.isInteger(player.teamIndex);
   const teamIndex = hasIncomingTeam
     ? Math.max(0, Math.min(FACECHINKO_TEAMS.length - 1, player.teamIndex))
@@ -152,6 +177,65 @@ function upsertPlayer(st, player) {
   return st.playersByUid[uid];
 }
 
+function grantTeamPower(session, teamIndex, powerId) {
+  const st = ensureState(session);
+  if (!Number.isInteger(teamIndex) || teamIndex < 0 || teamIndex >= FACECHINKO_TEAMS.length) return null;
+
+  const state = teamPowerState(st, teamIndex);
+  state.available = true;
+  state.used = false;
+  state.powerId = powerId || `power_${teamIndex + 1}_${Date.now()}`;
+  state.grantedAt = nowIso();
+  state.consumedAt = null;
+
+  broadcastToPlayers(session, {
+    type: "teamPowerReady",
+    teamIndex,
+    teamId: teamIndex + 1,
+    powerId: state.powerId,
+    available: true,
+    used: false,
+  });
+
+  safeSend(session.unity?.ws, {
+    type: "teamPowerReadyAck",
+    teamIndex,
+    teamId: teamIndex + 1,
+    powerId: state.powerId,
+  });
+
+  return state;
+}
+
+function consumeTeamPower(session, uid) {
+  const st = ensureState(session);
+  const player = st.playersByUid[uid];
+  if (!player) return { ok: false, reason: "player_not_found" };
+
+  const teamIndex = player.teamIndex;
+  const state = teamPowerState(st, teamIndex);
+  if (!state.available || state.used) return { ok: false, reason: "power_unavailable", teamIndex };
+
+  state.used = true;
+  state.available = false;
+  state.activationCount = (state.activationCount || 0) + 1;
+  state.consumedAt = nowIso();
+
+  const payload = {
+    type: "powerActivated",
+    teamIndex,
+    teamId: teamIndex + 1,
+    powerId: state.powerId,
+    byUid: uid,
+    byName: player.name,
+  };
+
+  safeSend(session.unity?.ws, payload);
+  broadcastToPlayers(session, payload);
+
+  return { ok: true, ...payload };
+}
+
 async function finalizeAndStore(session, reason) {
   const st = ensureState(session);
   if (st.endedAt) return;
@@ -170,19 +254,13 @@ async function finalizeAndStore(session, reason) {
     location: session.location,
     startedAt: st.startedAt,
     endedAt: st.endedAt,
+    resultStatus: winningTeam ? "completed" : "dnf",
     reason,
+    totalPlayersByTeam: teamPlayerCounts(st),
     winningTeam: winningTeam
       ? { teamId: winningTeam.teamId, name: winningTeam.name, color: winningTeam.color }
       : null,
     mvp: mvp ? { uid: mvp.uid, name: mvp.name, teamId: mvp.teamIndex + 1 } : null,
-    teams: FACECHINKO_TEAMS.map((t, idx) => ({
-      teamId: t.teamId,
-      teamName: t.name,
-      color: t.color,
-      players: Object.values(st.playersByUid)
-        .filter((p) => p.teamIndex === idx)
-        .map((p) => ({ uid: p.uid, name: p.name })),
-    })),
   };
 
   const key = `games/facechinko/fck${timestampCompact()}_${session.code}.json`;
@@ -193,6 +271,7 @@ async function finalizeAndStore(session, reason) {
     winningTeamIndex: st.winningTeamIndex,
     winningTeamId: Number.isInteger(st.winningTeamIndex) ? st.winningTeamIndex + 1 : null,
     mvpName: mvp?.name || null,
+    resultStatus: payload.resultStatus,
   });
 
   safeSend(session.unity?.ws, { type: "recordSaved", ok: upload.ok, key, reason: upload.reason || null });
@@ -210,6 +289,7 @@ module.exports = {
       endedAt: null,
       winningTeamIndex: null,
       mvpUid: null,
+      teamPower: {},
     };
   },
 
@@ -223,9 +303,6 @@ module.exports = {
     if (!p) return;
 
     const uidToUse = p.facechinkoUid || p.resumeToken;
-
-    // If player already exists (e.g., selected team via /facechinko/select-team),
-    // do NOT overwrite their team unless a preferredTeamIndex was explicitly provided.
     const existing = st.playersByUid[uidToUse] || null;
     const hasPreferred = Number.isInteger(p.preferredTeamIndex);
 
@@ -273,7 +350,23 @@ module.exports = {
     }
   },
 
-  onPlayerMsg() {},
+  onPlayerMsg(session, clientId, payload) {
+    if (!payload || typeof payload !== "object") return;
+    if (String(payload.kind || "") !== "powerUse") return;
+
+    const p = session.players[clientId];
+    if (!p?.facechinkoUid) return;
+
+    const result = consumeTeamPower(session, p.facechinkoUid);
+    safeSend(p.ws, {
+      type: "powerUseResult",
+      ok: result.ok,
+      reason: result.reason || null,
+      teamIndex: result.teamIndex,
+      teamId: Number.isInteger(result.teamIndex) ? result.teamIndex + 1 : null,
+      powerId: result.powerId || null,
+    });
+  },
 
   onUnityMsg(session, payload) {
     const st = ensureState(session);
@@ -292,8 +385,18 @@ module.exports = {
       return;
     }
 
+    if (payload.kind === "powerReady") {
+      let teamIndex = null;
+      if (Number.isInteger(payload.teamIndex)) teamIndex = payload.teamIndex;
+      else if (Number.isFinite(Number(payload.teamId))) teamIndex = Number(payload.teamId) - 1;
+
+      if (!Number.isInteger(teamIndex)) return;
+      teamIndex = Math.max(0, Math.min(FACECHINKO_TEAMS.length - 1, teamIndex));
+      grantTeamPower(session, teamIndex, payload.powerId || null);
+      return;
+    }
+
     if (payload.kind === "gameOver") {
-      // Accept either winningTeamIndex (0-based) or winningTeamId (1-based)
       let wIdx = null;
       if (Number.isInteger(payload.winningTeamIndex)) wIdx = payload.winningTeamIndex;
       else if (Number.isFinite(Number(payload.winningTeamId))) wIdx = Number(payload.winningTeamId) - 1;
@@ -355,6 +458,8 @@ module.exports = {
     const p = st.playersByUid[uid];
     if (!p) return null;
     const team = FACECHINKO_TEAMS[p.teamIndex];
+    const power = teamPowerState(st, p.teamIndex);
+
     return {
       uid: p.uid,
       name: p.name,
@@ -362,6 +467,8 @@ module.exports = {
       teamId: team.teamId,
       teamName: team.name,
       color: team.color,
+      canUsePower: !!power.available && !power.used,
+      currentPowerId: power.powerId,
       winningTeamId: Number.isInteger(st.winningTeamIndex) ? st.winningTeamIndex + 1 : null,
       mvpName: st.mvpUid ? st.playersByUid[st.mvpUid]?.name || null : null,
     };
