@@ -25,6 +25,8 @@ function timestampCompact() {
   )}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`;
 }
 
+const TEAM_POWER_COOLDOWN_MS = 15000;
+
 function getS3BucketName(session) {
   return (
     session?.s3Bucket ||
@@ -68,12 +70,11 @@ function teamPowerState(st, teamIndex) {
   if (!st.teamPower || !st.teamPower[teamIndex]) {
     st.teamPower = st.teamPower || {};
     st.teamPower[teamIndex] = {
-      available: false,
-      used: false,
       powerId: null,
       activationCount: 0,
       grantedAt: null,
       consumedAt: null,
+      cooldownUntilMs: 0,
     };
   }
   return st.teamPower[teamIndex];
@@ -177,34 +178,16 @@ function upsertPlayer(st, player) {
   return st.playersByUid[uid];
 }
 
-function grantTeamPower(session, teamIndex, powerId) {
-  const st = ensureState(session);
-  if (!Number.isInteger(teamIndex) || teamIndex < 0 || teamIndex >= FACECHINKO_TEAMS.length) return null;
-
-  const state = teamPowerState(st, teamIndex);
-  state.available = true;
-  state.used = false;
-  state.powerId = powerId || `power_${teamIndex + 1}_${Date.now()}`;
-  state.grantedAt = nowIso();
-  state.consumedAt = null;
-
-  broadcastToPlayers(session, {
-    type: "teamPowerReady",
-    teamIndex,
-    teamId: teamIndex + 1,
-    powerId: state.powerId,
-    available: true,
-    used: false,
-  });
-
-  safeSend(session.unity?.ws, {
-    type: "teamPowerReadyAck",
-    teamIndex,
-    teamId: teamIndex + 1,
-    powerId: state.powerId,
-  });
-
-  return state;
+function getPowerCooldownInfo(state) {
+  const now = Date.now();
+  const cooldownUntilMs = Number(state.cooldownUntilMs || 0);
+  const cooldownRemainingMs = Math.max(0, cooldownUntilMs - now);
+  return {
+    canUsePower: cooldownRemainingMs === 0,
+    cooldownRemainingMs,
+    cooldownUntilMs,
+    cooldownUntilIso: cooldownUntilMs > 0 ? new Date(cooldownUntilMs).toISOString() : null,
+  };
 }
 
 function consumeTeamPower(session, uid) {
@@ -214,13 +197,24 @@ function consumeTeamPower(session, uid) {
 
   const teamIndex = player.teamIndex;
   const state = teamPowerState(st, teamIndex);
-  if (!state.available || state.used) return { ok: false, reason: "power_unavailable", teamIndex };
+  const cooldown = getPowerCooldownInfo(state);
+  if (!cooldown.canUsePower) {
+    return {
+      ok: false,
+      reason: "power_cooldown",
+      teamIndex,
+      cooldownRemainingMs: cooldown.cooldownRemainingMs,
+      cooldownUntilMs: cooldown.cooldownUntilMs,
+      cooldownUntilIso: cooldown.cooldownUntilIso,
+    };
+  }
 
-  state.used = true;
-  state.available = false;
+  state.powerId = `power_${teamIndex + 1}_${Date.now()}`;
   state.activationCount = (state.activationCount || 0) + 1;
   state.consumedAt = nowIso();
+  state.cooldownUntilMs = Date.now() + TEAM_POWER_COOLDOWN_MS;
 
+  const updatedCooldown = getPowerCooldownInfo(state);
   const payload = {
     type: "powerActivated",
     teamIndex,
@@ -228,12 +222,15 @@ function consumeTeamPower(session, uid) {
     powerId: state.powerId,
     byUid: uid,
     byName: player.name,
+    cooldownMs: TEAM_POWER_COOLDOWN_MS,
+    cooldownUntilMs: updatedCooldown.cooldownUntilMs,
+    cooldownUntilIso: updatedCooldown.cooldownUntilIso,
   };
 
   safeSend(session.unity?.ws, payload);
   broadcastToPlayers(session, payload);
 
-  return { ok: true, ...payload };
+  return { ok: true, ...payload, cooldownRemainingMs: updatedCooldown.cooldownRemainingMs };
 }
 
 async function finalizeAndStore(session, reason) {
@@ -365,6 +362,8 @@ module.exports = {
       teamIndex: result.teamIndex,
       teamId: Number.isInteger(result.teamIndex) ? result.teamIndex + 1 : null,
       powerId: result.powerId || null,
+      cooldownRemainingMs: Number.isFinite(result.cooldownRemainingMs) ? result.cooldownRemainingMs : 0,
+      cooldownUntilMs: Number.isFinite(result.cooldownUntilMs) ? result.cooldownUntilMs : 0,
     });
   },
 
@@ -382,17 +381,6 @@ module.exports = {
         finalizeAndStore(session, "unity_phase_ended").catch(() => {});
       }
       broadcastToPlayers(session, { type: "phase", phase: session.phase });
-      return;
-    }
-
-    if (payload.kind === "powerReady") {
-      let teamIndex = null;
-      if (Number.isInteger(payload.teamIndex)) teamIndex = payload.teamIndex;
-      else if (Number.isFinite(Number(payload.teamId))) teamIndex = Number(payload.teamId) - 1;
-
-      if (!Number.isInteger(teamIndex)) return;
-      teamIndex = Math.max(0, Math.min(FACECHINKO_TEAMS.length - 1, teamIndex));
-      grantTeamPower(session, teamIndex, payload.powerId || null);
       return;
     }
 
@@ -459,6 +447,7 @@ module.exports = {
     if (!p) return null;
     const team = FACECHINKO_TEAMS[p.teamIndex];
     const power = teamPowerState(st, p.teamIndex);
+    const cooldown = getPowerCooldownInfo(power);
 
     return {
       uid: p.uid,
@@ -467,8 +456,12 @@ module.exports = {
       teamId: team.teamId,
       teamName: team.name,
       color: team.color,
-      canUsePower: !!power.available && !power.used,
+      canUsePower: cooldown.canUsePower,
       currentPowerId: power.powerId,
+      powerCooldownMs: TEAM_POWER_COOLDOWN_MS,
+      powerCooldownRemainingMs: cooldown.cooldownRemainingMs,
+      powerCooldownUntilMs: cooldown.cooldownUntilMs,
+      powerCooldownUntilIso: cooldown.cooldownUntilIso,
       winningTeamId: Number.isInteger(st.winningTeamIndex) ? st.winningTeamIndex + 1 : null,
       mvpName: st.mvpUid ? st.playersByUid[st.mvpUid]?.name || null : null,
     };

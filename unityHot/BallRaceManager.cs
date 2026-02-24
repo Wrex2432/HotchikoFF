@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -32,14 +33,26 @@ public class BallRaceManager : MonoBehaviour
     [SerializeField] private KeyCode debugGrantPowerKey = KeyCode.P;
     [SerializeField] private int debugPowerTeamIndex = 0;
 
+    [Header("BOIL Effect")]
+    [SerializeField] private Transform screenShakeTarget;
+    [SerializeField] private float boilDuration = 1.5f;
+    [SerializeField] private float boilBallJitterInterval = 0.05f;
+    [SerializeField] private float boilBallJitterImpulse = 0.2f;
+    [SerializeField] private float boilBallJitterAngularImpulse = 12f;
+    [SerializeField] private float boilScreenShakeAmplitude = 0.18f;
+    [SerializeField] private float boilScreenShakeFrequency = 35f;
+
     private readonly List<RaceBall> spawnedBalls = new();
     private readonly List<RaceBall> finishOrder = new();
     private readonly Dictionary<string, RaceBall> ballByUid = new();
 
     public bool RaceStarted { get; private set; }
+    public event Action<RaceBall> OnBallFinished;
 
     private Coroutine collisionRoutine;
+    private Coroutine boilRoutine;
     private bool resultSent;
+    private Vector3 shakeOriginLocalPos;
 
     private void Awake()
     {
@@ -51,6 +64,8 @@ public class BallRaceManager : MonoBehaviour
 
         Instance = this;
         if (backend == null) backend = GetComponent<BackendConnector>();
+        if (screenShakeTarget == null && Camera.main != null) screenShakeTarget = Camera.main.transform;
+        if (screenShakeTarget != null) shakeOriginLocalPos = screenShakeTarget.localPosition;
     }
 
     private void OnEnable()
@@ -59,6 +74,7 @@ public class BallRaceManager : MonoBehaviour
         backend.OnPlayerChanged += HandlePlayerChanged;
         backend.OnPlayerLeft += HandlePlayerLeft;
         backend.OnGameResult += HandleGameResult;
+        backend.OnPowerActivated += HandlePowerActivated;
         backend.OnUnityCreated += HandleUnityCreated;
         backend.OnPaused += HandlePaused;
         backend.OnEnded += HandleEnded;
@@ -70,6 +86,7 @@ public class BallRaceManager : MonoBehaviour
         backend.OnPlayerChanged -= HandlePlayerChanged;
         backend.OnPlayerLeft -= HandlePlayerLeft;
         backend.OnGameResult -= HandleGameResult;
+        backend.OnPowerActivated -= HandlePowerActivated;
         backend.OnUnityCreated -= HandleUnityCreated;
         backend.OnPaused -= HandlePaused;
         backend.OnEnded -= HandleEnded;
@@ -182,6 +199,79 @@ public class BallRaceManager : MonoBehaviour
             Debug.Log($"[Facechinko] Backend gameResult winnerTeamIndex={msg.winningTeamIndex}");
     }
 
+    private void HandlePowerActivated(BackendConnector.FacechinkoPowerActivatedMsg msg)
+    {
+        if (msg == null) return;
+
+        TriggerBoilEffect(Mathf.Max(0, msg.teamIndex), msg.powerId);
+    }
+
+    private void TriggerBoilEffect(int teamIndex, string powerId)
+    {
+        if (boilRoutine != null)
+        {
+            StopCoroutine(boilRoutine);
+            boilRoutine = null;
+            if (screenShakeTarget != null) screenShakeTarget.localPosition = shakeOriginLocalPos;
+        }
+
+        boilRoutine = StartCoroutine(BoilRoutine());
+
+        if (verboseLogs)
+            Debug.Log($"[Facechinko] BOIL activated for team {teamIndex}, powerId={powerId}");
+    }
+
+    private IEnumerator BoilRoutine()
+    {
+        if (screenShakeTarget != null) shakeOriginLocalPos = screenShakeTarget.localPosition;
+
+        float duration = Mathf.Max(0.05f, boilDuration);
+        float jitterInterval = Mathf.Max(0.01f, boilBallJitterInterval);
+        float elapsed = 0f;
+        float jitterTimer = 0f;
+
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            jitterTimer += Time.deltaTime;
+
+            if (screenShakeTarget != null)
+            {
+                float t = Mathf.Clamp01(elapsed / duration);
+                float decay = 1f - t;
+                float wave = Mathf.Sin(elapsed * boilScreenShakeFrequency);
+                Vector2 random = UnityEngine.Random.insideUnitCircle;
+                Vector3 offset = (new Vector3(random.x, random.y, 0f) * 0.6f + new Vector3(wave, -wave, 0f) * 0.4f)
+                    * boilScreenShakeAmplitude * decay;
+                screenShakeTarget.localPosition = shakeOriginLocalPos + offset;
+            }
+
+            if (jitterTimer >= jitterInterval)
+            {
+                jitterTimer = 0f;
+                ApplyBoilJitterToBalls();
+            }
+
+            yield return null;
+        }
+
+        if (screenShakeTarget != null) screenShakeTarget.localPosition = shakeOriginLocalPos;
+        boilRoutine = null;
+    }
+
+    private void ApplyBoilJitterToBalls()
+    {
+        for (int i = 0; i < spawnedBalls.Count; i++)
+        {
+            var ball = spawnedBalls[i];
+            if (ball == null || ball.rb == null || !ball.rb.simulated) continue;
+
+            Vector2 impulse = UnityEngine.Random.insideUnitCircle * boilBallJitterImpulse;
+            ball.rb.AddForce(impulse, ForceMode2D.Impulse);
+            ball.rb.AddTorque(UnityEngine.Random.Range(-boilBallJitterAngularImpulse, boilBallJitterAngularImpulse), ForceMode2D.Impulse);
+        }
+    }
+
     public void StartRace()
     {
         if (spawnedBalls.Count == 0) return;
@@ -202,11 +292,11 @@ public class BallRaceManager : MonoBehaviour
             ball.rb.simulated = true;
 
             float angle01 = (float)i / spawnedBalls.Count;
-            float angleDeg = angle01 * 360f + Random.Range(-20f, 20f) * spawnPulseRandomness;
+            float angleDeg = angle01 * 360f + UnityEngine.Random.Range(-20f, 20f) * spawnPulseRandomness;
             float angleRad = angleDeg * Mathf.Deg2Rad;
 
             Vector2 dir = new Vector2(Mathf.Cos(angleRad), Mathf.Sin(angleRad)).normalized;
-            float randomForceMul = 1f + Random.Range(-spawnPulseRandomness, spawnPulseRandomness);
+            float randomForceMul = 1f + UnityEngine.Random.Range(-spawnPulseRandomness, spawnPulseRandomness);
             float finalForce = Mathf.Max(0f, spawnPulseForce * randomForceMul);
 
             ball.rb.AddForce(dir * finalForce, ForceMode2D.Impulse);
@@ -243,6 +333,7 @@ public class BallRaceManager : MonoBehaviour
         ball.hasFinished = true;
         finishOrder.Add(ball);
         ball.finishRank = finishOrder.Count;
+        OnBallFinished?.Invoke(ball);
 
 #if UNITY_6000_0_OR_NEWER
         ball.rb.linearVelocity = Vector2.zero;
@@ -325,6 +416,14 @@ public class BallRaceManager : MonoBehaviour
             StopCoroutine(collisionRoutine);
             collisionRoutine = null;
         }
+
+        if (boilRoutine != null)
+        {
+            StopCoroutine(boilRoutine);
+            boilRoutine = null;
+        }
+        if (screenShakeTarget != null)
+            screenShakeTarget.localPosition = shakeOriginLocalPos;
 
         foreach (var b in spawnedBalls.Where(b => b != null))
         {
