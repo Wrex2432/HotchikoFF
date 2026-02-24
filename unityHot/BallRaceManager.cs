@@ -240,7 +240,7 @@ public class BallRaceManager : MonoBehaviour
                 float t = Mathf.Clamp01(elapsed / duration);
                 float decay = 1f - t;
                 float wave = Mathf.Sin(elapsed * boilScreenShakeFrequency);
-                Vector2 random = Random.insideUnitCircle;
+                Vector2 random = UnityEngine.Random.insideUnitCircle;
                 Vector3 offset = (new Vector3(random.x, random.y, 0f) * 0.6f + new Vector3(wave, -wave, 0f) * 0.4f)
                     * boilScreenShakeAmplitude * decay;
                 screenShakeTarget.localPosition = shakeOriginLocalPos + offset;
@@ -266,9 +266,9 @@ public class BallRaceManager : MonoBehaviour
             var ball = spawnedBalls[i];
             if (ball == null || ball.rb == null || !ball.rb.simulated) continue;
 
-            Vector2 impulse = Random.insideUnitCircle * boilBallJitterImpulse;
+            Vector2 impulse = UnityEngine.Random.insideUnitCircle * boilBallJitterImpulse;
             ball.rb.AddForce(impulse, ForceMode2D.Impulse);
-            ball.rb.AddTorque(Random.Range(-boilBallJitterAngularImpulse, boilBallJitterAngularImpulse), ForceMode2D.Impulse);
+            ball.rb.AddTorque(UnityEngine.Random.Range(-boilBallJitterAngularImpulse, boilBallJitterAngularImpulse), ForceMode2D.Impulse);
         }
     }
 
@@ -292,11 +292,11 @@ public class BallRaceManager : MonoBehaviour
             ball.rb.simulated = true;
 
             float angle01 = (float)i / spawnedBalls.Count;
-            float angleDeg = angle01 * 360f + Random.Range(-20f, 20f) * spawnPulseRandomness;
+            float angleDeg = angle01 * 360f + UnityEngine.Random.Range(-20f, 20f) * spawnPulseRandomness;
             float angleRad = angleDeg * Mathf.Deg2Rad;
 
             Vector2 dir = new Vector2(Mathf.Cos(angleRad), Mathf.Sin(angleRad)).normalized;
-            float randomForceMul = 1f + Random.Range(-spawnPulseRandomness, spawnPulseRandomness);
+            float randomForceMul = 1f + UnityEngine.Random.Range(-spawnPulseRandomness, spawnPulseRandomness);
             float finalForce = Mathf.Max(0f, spawnPulseForce * randomForceMul);
 
             ball.rb.AddForce(dir * finalForce, ForceMode2D.Impulse);
