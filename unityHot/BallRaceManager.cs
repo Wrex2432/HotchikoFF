@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -46,6 +47,7 @@ public class BallRaceManager : MonoBehaviour
     private readonly Dictionary<string, RaceBall> ballByUid = new();
 
     public bool RaceStarted { get; private set; }
+    public event Action<RaceBall> OnBallFinished;
 
     private Coroutine collisionRoutine;
     private Coroutine boilRoutine;
@@ -331,6 +333,7 @@ public class BallRaceManager : MonoBehaviour
         ball.hasFinished = true;
         finishOrder.Add(ball);
         ball.finishRank = finishOrder.Count;
+        OnBallFinished?.Invoke(ball);
 
 #if UNITY_6000_0_OR_NEWER
         ball.rb.linearVelocity = Vector2.zero;
