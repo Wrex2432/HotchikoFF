@@ -32,6 +32,15 @@ public class BallRaceManager : MonoBehaviour
     [SerializeField] private KeyCode debugGrantPowerKey = KeyCode.P;
     [SerializeField] private int debugPowerTeamIndex = 0;
 
+    [Header("BOIL Effect")]
+    [SerializeField] private Transform screenShakeTarget;
+    [SerializeField] private float boilDuration = 1.5f;
+    [SerializeField] private float boilBallJitterInterval = 0.05f;
+    [SerializeField] private float boilBallJitterImpulse = 0.2f;
+    [SerializeField] private float boilBallJitterAngularImpulse = 12f;
+    [SerializeField] private float boilScreenShakeAmplitude = 0.18f;
+    [SerializeField] private float boilScreenShakeFrequency = 35f;
+
     private readonly List<RaceBall> spawnedBalls = new();
     private readonly List<RaceBall> finishOrder = new();
     private readonly Dictionary<string, RaceBall> ballByUid = new();
@@ -39,7 +48,9 @@ public class BallRaceManager : MonoBehaviour
     public bool RaceStarted { get; private set; }
 
     private Coroutine collisionRoutine;
+    private Coroutine boilRoutine;
     private bool resultSent;
+    private Vector3 shakeOriginLocalPos;
 
     private void Awake()
     {
@@ -51,6 +62,8 @@ public class BallRaceManager : MonoBehaviour
 
         Instance = this;
         if (backend == null) backend = GetComponent<BackendConnector>();
+        if (screenShakeTarget == null && Camera.main != null) screenShakeTarget = Camera.main.transform;
+        if (screenShakeTarget != null) shakeOriginLocalPos = screenShakeTarget.localPosition;
     }
 
     private void OnEnable()
@@ -186,11 +199,75 @@ public class BallRaceManager : MonoBehaviour
 
     private void HandlePowerActivated(BackendConnector.FacechinkoPowerActivatedMsg msg)
     {
-        if (backend == null || msg == null) return;
+        if (msg == null) return;
 
-        // BOIL now triggers the same path as the debug key flow:
-        // backend.SendUnityMsg({ kind: "powerReady", teamIndex, powerId })
-        NotifyTeamPowerPickup(Mathf.Max(0, msg.teamIndex), msg.powerId);
+        TriggerBoilEffect(Mathf.Max(0, msg.teamIndex), msg.powerId);
+    }
+
+    private void TriggerBoilEffect(int teamIndex, string powerId)
+    {
+        if (boilRoutine != null)
+        {
+            StopCoroutine(boilRoutine);
+            boilRoutine = null;
+            if (screenShakeTarget != null) screenShakeTarget.localPosition = shakeOriginLocalPos;
+        }
+
+        boilRoutine = StartCoroutine(BoilRoutine());
+
+        if (verboseLogs)
+            Debug.Log($"[Facechinko] BOIL activated for team {teamIndex}, powerId={powerId}");
+    }
+
+    private IEnumerator BoilRoutine()
+    {
+        if (screenShakeTarget != null) shakeOriginLocalPos = screenShakeTarget.localPosition;
+
+        float duration = Mathf.Max(0.05f, boilDuration);
+        float jitterInterval = Mathf.Max(0.01f, boilBallJitterInterval);
+        float elapsed = 0f;
+        float jitterTimer = 0f;
+
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            jitterTimer += Time.deltaTime;
+
+            if (screenShakeTarget != null)
+            {
+                float t = Mathf.Clamp01(elapsed / duration);
+                float decay = 1f - t;
+                float wave = Mathf.Sin(elapsed * boilScreenShakeFrequency);
+                Vector2 random = Random.insideUnitCircle;
+                Vector3 offset = (new Vector3(random.x, random.y, 0f) * 0.6f + new Vector3(wave, -wave, 0f) * 0.4f)
+                    * boilScreenShakeAmplitude * decay;
+                screenShakeTarget.localPosition = shakeOriginLocalPos + offset;
+            }
+
+            if (jitterTimer >= jitterInterval)
+            {
+                jitterTimer = 0f;
+                ApplyBoilJitterToBalls();
+            }
+
+            yield return null;
+        }
+
+        if (screenShakeTarget != null) screenShakeTarget.localPosition = shakeOriginLocalPos;
+        boilRoutine = null;
+    }
+
+    private void ApplyBoilJitterToBalls()
+    {
+        for (int i = 0; i < spawnedBalls.Count; i++)
+        {
+            var ball = spawnedBalls[i];
+            if (ball == null || ball.rb == null || !ball.rb.simulated) continue;
+
+            Vector2 impulse = Random.insideUnitCircle * boilBallJitterImpulse;
+            ball.rb.AddForce(impulse, ForceMode2D.Impulse);
+            ball.rb.AddTorque(Random.Range(-boilBallJitterAngularImpulse, boilBallJitterAngularImpulse), ForceMode2D.Impulse);
+        }
     }
 
     public void StartRace()
@@ -336,6 +413,14 @@ public class BallRaceManager : MonoBehaviour
             StopCoroutine(collisionRoutine);
             collisionRoutine = null;
         }
+
+        if (boilRoutine != null)
+        {
+            StopCoroutine(boilRoutine);
+            boilRoutine = null;
+        }
+        if (screenShakeTarget != null)
+            screenShakeTarget.localPosition = shakeOriginLocalPos;
 
         foreach (var b in spawnedBalls.Where(b => b != null))
         {
