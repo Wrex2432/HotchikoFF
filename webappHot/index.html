@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Facechinko Control</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="app">
+    <section id="joinPage" class="card">
+      <h1>Join Facechinko</h1>
+      <label class="label" for="roomCode">Room Code</label>
+      <input id="roomCode" maxlength="8" placeholder="Enter room code" autocomplete="off" />
+
+      <p class="label">Pick Team</p>
+      <div class="carousel-wrap">
+        <button id="teamPrev" class="nav">◀</button>
+        <div id="teamCircle" class="team-circle na">
+          <div id="teamName">N/A</div>
+        </div>
+        <button id="teamNext" class="nav">▶</button>
+      </div>
+
+      <button id="joinBtn" class="primary">Submit</button>
+      <p id="joinError" class="error"></p>
+    </section>
+
+    <section id="controlPage" class="card hidden">
+      <h2 id="controlTeamName">Team</h2>
+      <div id="controlBall" class="ball"></div>
+      <button id="powerBtn" class="primary" disabled>POWER</button>
+      <p id="powerHint" class="muted">Waiting for team power pickup in game.</p>
+      <p id="resultText" class="result"></p>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
