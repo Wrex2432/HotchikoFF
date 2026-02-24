@@ -1,18 +1,18 @@
 using System;
 using System.Collections.Generic;
-using Newtonsoft.Json;
+using System.Text;
 using UnityEngine;
 
-#if !UNITY_WEBGL || UNITY_EDITOR
+#if USE_NATIVE_WEBSOCKET
 using NativeWebSocket;
 #endif
 
 public class BackendConnector : MonoBehaviour
 {
-    [SerializeField] private string serverUrl = "wss://api.prologuebymetama.com/ws";
+    [SerializeField] private string serverUrl = "ws://localhost:3000";
     [SerializeField] private bool verboseLogs = true;
 
-#if !UNITY_WEBGL || UNITY_EDITOR
+#if USE_NATIVE_WEBSOCKET
     private WebSocket ws;
 #endif
     private bool connected;
@@ -23,8 +23,6 @@ public class BackendConnector : MonoBehaviour
     public event Action<string> OnUnityCreated;
     public event Action<FacechinkoPlayerMsg> OnPlayerChanged;
     public event Action<FacechinkoGameResultMsg> OnGameResult;
-
-    // Optional (useful if you want Unity to react when backend pauses/ends)
     public event Action<string> OnPaused;
     public event Action OnEnded;
 
@@ -40,36 +38,10 @@ public class BackendConnector : MonoBehaviour
     }
 
     [Serializable]
-    public class UnityEnvelope
-    {
-        public string type = "unityMsg";
-        public string code;
-        public object payload;
-    }
-
-    [Serializable]
-    public class TypeOnly
-    {
-        public string type;
-    }
-
-    [Serializable]
-    public class UnityCreated
-    {
-        public string type;
-        public bool ok;
-        public string code;
-        public string reason;
-        public object snapshot; // backend may include snapshot
-        public bool reattached; // optional
-    }
-
-    [Serializable]
     public class FacechinkoPlayerMsg
     {
         public string type;
         public FacechinkoPlayer player;
-        public object snapshot; // backend may include snapshot
     }
 
     [Serializable]
@@ -85,22 +57,8 @@ public class BackendConnector : MonoBehaviour
     {
         public string type;
         public int winningTeamIndex;
-        public int winningTeamId; // optional
+        public int winningTeamId;
         public string mvpName;
-    }
-
-    [Serializable]
-    public class PausedMsg
-    {
-        public string type;
-        public string reason;
-    }
-
-    [Serializable]
-    public class EndedMsg
-    {
-        public string type;
-        public string reason;
     }
 
     public void SetServerUrl(string url) => serverUrl = url;
@@ -108,7 +66,7 @@ public class BackendConnector : MonoBehaviour
 
     public void Connect()
     {
-#if !UNITY_WEBGL || UNITY_EDITOR
+#if USE_NATIVE_WEBSOCKET
         if (ws != null)
         {
             try { ws.Close(); } catch { }
@@ -116,7 +74,6 @@ public class BackendConnector : MonoBehaviour
         }
 
         ws = new WebSocket(serverUrl);
-
         ws.OnOpen += () =>
         {
             connected = true;
@@ -141,17 +98,21 @@ public class BackendConnector : MonoBehaviour
 
         ws.OnMessage += (bytes) =>
         {
-            var json = System.Text.Encoding.UTF8.GetString(bytes);
+            var json = Encoding.UTF8.GetString(bytes);
             HandleInbound(json);
         };
 
         ws.Connect();
+#else
+        connected = false;
+        Debug.LogError("[Facechinko] BackendConnector needs NativeWebSocket. Add scripting define symbol USE_NATIVE_WEBSOCKET after installing dependency.");
+        OnDisconnected?.Invoke("missing_native_websocket");
 #endif
     }
 
     public async void Disconnect()
     {
-#if !UNITY_WEBGL || UNITY_EDITOR
+#if USE_NATIVE_WEBSOCKET
         try
         {
             if (ws != null) await ws.Close();
@@ -160,28 +121,39 @@ public class BackendConnector : MonoBehaviour
 #endif
     }
 
-    public void SendUnityCreate(UnityCreateMsg msg) => SendJson(msg);
+    public void SendUnityCreate(UnityCreateMsg msg)
+    {
+        var json = $"{{\"type\":\"unityCreate\",\"gameType\":\"{Escape(msg.gameType)}\",\"location\":\"{Escape(msg.location)}\",\"teamCount\":{msg.teamCount},\"allowedNumberOfPlayers\":{msg.allowedNumberOfPlayers},\"requestedCode\":\"{Escape(msg.requestedCode)}\"}}";
+        SendRaw(json);
+    }
 
     public void SendPhase(string phase)
     {
-        SendUnityMsg(new Dictionary<string, object>
-        {
-            { "kind", "phase" },
-            { "phase", phase }
-        });
+        SendUnityMsgRaw($"{{\"kind\":\"phase\",\"phase\":\"{Escape(phase)}\"}}");
     }
 
     public void SendGameOver(int winningTeamIndex, string mvpUid)
     {
-        SendUnityMsg(new Dictionary<string, object>
-        {
-            { "kind", "gameOver" },
-            { "winningTeamIndex", winningTeamIndex },
-            { "mvpUid", mvpUid }
-        });
+        SendUnityMsgRaw($"{{\"kind\":\"gameOver\",\"winningTeamIndex\":{winningTeamIndex},\"mvpUid\":\"{Escape(mvpUid)}\"}}");
     }
 
-    public void SendUnityMsg(object payload)
+    public void SendUnityMsg(Dictionary<string, object> payload)
+    {
+        // Minimal helper for known payloads in this project.
+        if (payload == null || payload.Count == 0) return;
+
+        if (payload.TryGetValue("kind", out var kindObj) && (kindObj?.ToString() ?? "") == "powerReady")
+        {
+            var teamIndex = payload.TryGetValue("teamIndex", out var t) ? Convert.ToInt32(t) : 0;
+            var powerId = payload.TryGetValue("powerId", out var p) ? p?.ToString() ?? "" : "";
+            SendUnityMsgRaw($"{{\"kind\":\"powerReady\",\"teamIndex\":{teamIndex},\"powerId\":\"{Escape(powerId)}\"}}");
+            return;
+        }
+
+        Debug.LogWarning("[Facechinko] SendUnityMsg received unsupported payload shape.");
+    }
+
+    private void SendUnityMsgRaw(string payloadJson)
     {
         if (string.IsNullOrWhiteSpace(sessionCode))
         {
@@ -189,25 +161,14 @@ public class BackendConnector : MonoBehaviour
             return;
         }
 
-        SendJson(new UnityEnvelope { type = "unityMsg", code = sessionCode, payload = payload });
+        var envelope = $"{{\"type\":\"unityMsg\",\"code\":\"{Escape(sessionCode)}\",\"payload\":{payloadJson}}}";
+        SendRaw(envelope);
     }
 
-    private async void SendJson(object obj)
+    private async void SendRaw(string json)
     {
-#if !UNITY_WEBGL || UNITY_EDITOR
+#if USE_NATIVE_WEBSOCKET
         if (!connected || ws == null) return;
-
-        string json;
-        try
-        {
-            json = JsonConvert.SerializeObject(obj);
-        }
-        catch (Exception e)
-        {
-            Debug.LogError($"[Facechinko] Serialize failed: {e.Message}");
-            return;
-        }
-
         if (verboseLogs) Debug.Log($"[Facechinko] >> {json}");
 
         try
@@ -220,6 +181,8 @@ public class BackendConnector : MonoBehaviour
             Debug.LogError($"[Facechinko] SendText failed: {e.Message}");
             OnDisconnected?.Invoke(e.Message);
         }
+#else
+        Debug.LogWarning($"[Facechinko] (no websocket) skipped send: {json}");
 #endif
     }
 
@@ -227,80 +190,127 @@ public class BackendConnector : MonoBehaviour
     {
         if (verboseLogs) Debug.Log($"[Facechinko] << {json}");
 
-        TypeOnly type;
-        try
-        {
-            type = JsonConvert.DeserializeObject<TypeOnly>(json);
-        }
-        catch (Exception e)
-        {
-            Debug.LogWarning($"[Facechinko] Could not parse message type. Error: {e.Message}");
-            return;
-        }
+        var type = ExtractString(json, "type");
+        if (string.IsNullOrWhiteSpace(type)) return;
 
-        if (type == null || string.IsNullOrWhiteSpace(type.type))
-            return;
-
-        if (type.type == "unityCreated")
+        if (type == "unityCreated")
         {
-            UnityCreated created = null;
-            try { created = JsonConvert.DeserializeObject<UnityCreated>(json); }
-            catch { }
-
-            if (created != null && created.ok)
+            var ok = ExtractBool(json, "ok");
+            if (ok)
             {
-                sessionCode = created.code;
+                sessionCode = ExtractString(json, "code") ?? "";
                 OnUnityCreated?.Invoke(sessionCode);
             }
             else
             {
-                var reason = created != null ? created.reason : "unknown_unityCreated_failure";
-                Debug.LogError($"[Facechinko] unityCreated failed: {reason}");
+                var reason = ExtractString(json, "reason") ?? "unknown_unityCreated_failure";
                 OnDisconnected?.Invoke($"unityCreated_failed_{reason}");
             }
             return;
         }
 
-        if (type.type == "playerRegistered" || type.type == "playerJoined" || type.type == "playerResumed")
+        if (type == "playerRegistered" || type == "playerJoined" || type == "playerResumed")
         {
-            FacechinkoPlayerMsg msg = null;
-            try { msg = JsonConvert.DeserializeObject<FacechinkoPlayerMsg>(json); }
-            catch { }
+            var msg = new FacechinkoPlayerMsg
+            {
+                type = type,
+                player = new FacechinkoPlayer
+                {
+                    uid = ExtractString(json, "uid"),
+                    name = ExtractString(json, "name"),
+                    teamIndex = ExtractInt(json, "teamIndex"),
+                }
+            };
 
-            if (msg != null) OnPlayerChanged?.Invoke(msg);
+            if (!string.IsNullOrWhiteSpace(msg.player.uid)) OnPlayerChanged?.Invoke(msg);
             return;
         }
 
-        if (type.type == "gameResult")
+        if (type == "gameResult")
         {
-            FacechinkoGameResultMsg result = null;
-            try { result = JsonConvert.DeserializeObject<FacechinkoGameResultMsg>(json); }
-            catch { }
-
-            if (result != null) OnGameResult?.Invoke(result);
+            var result = new FacechinkoGameResultMsg
+            {
+                type = type,
+                winningTeamIndex = ExtractInt(json, "winningTeamIndex"),
+                winningTeamId = ExtractInt(json, "winningTeamId"),
+                mvpName = ExtractString(json, "mvpName"),
+            };
+            OnGameResult?.Invoke(result);
             return;
         }
 
-        if (type.type == "paused")
+        if (type == "paused")
         {
-            PausedMsg paused = null;
-            try { paused = JsonConvert.DeserializeObject<PausedMsg>(json); }
-            catch { }
-
-            OnPaused?.Invoke(paused != null ? (paused.reason ?? "paused") : "paused");
+            OnPaused?.Invoke(ExtractString(json, "reason") ?? "paused");
             return;
         }
 
-        if (type.type == "ended")
+        if (type == "ended")
         {
             OnEnded?.Invoke();
-            return;
         }
+    }
+
+    private static string Escape(string input)
+    {
+        if (input == null) return "";
+        return input.Replace("\\", "\\\\").Replace("\"", "\\\"");
+    }
+
+    private static string ExtractString(string json, string key)
+    {
+        var needle = $"\"{key}\"";
+        var i = json.IndexOf(needle, StringComparison.Ordinal);
+        if (i < 0) return null;
+
+        var colon = json.IndexOf(':', i + needle.Length);
+        if (colon < 0) return null;
+
+        var firstQuote = json.IndexOf('"', colon + 1);
+        if (firstQuote < 0) return null;
+
+        var secondQuote = json.IndexOf('"', firstQuote + 1);
+        if (secondQuote < 0) return null;
+
+        return json.Substring(firstQuote + 1, secondQuote - firstQuote - 1);
+    }
+
+    private static int ExtractInt(string json, string key)
+    {
+        var needle = $"\"{key}\"";
+        var i = json.IndexOf(needle, StringComparison.Ordinal);
+        if (i < 0) return 0;
+
+        var colon = json.IndexOf(':', i + needle.Length);
+        if (colon < 0) return 0;
+
+        var j = colon + 1;
+        while (j < json.Length && (json[j] == ' ' || json[j] == '"')) j++;
+
+        var k = j;
+        while (k < json.Length && (char.IsDigit(json[k]) || json[k] == '-')) k++;
+
+        if (k <= j) return 0;
+        return int.TryParse(json.Substring(j, k - j), out var n) ? n : 0;
+    }
+
+    private static bool ExtractBool(string json, string key)
+    {
+        var needle = $"\"{key}\"";
+        var i = json.IndexOf(needle, StringComparison.Ordinal);
+        if (i < 0) return false;
+
+        var colon = json.IndexOf(':', i + needle.Length);
+        if (colon < 0) return false;
+
+        var tail = json.Substring(colon + 1).TrimStart();
+        if (tail.StartsWith("true", StringComparison.Ordinal)) return true;
+        return false;
     }
 
     private void Update()
     {
-#if !UNITY_WEBGL || UNITY_EDITOR
+#if USE_NATIVE_WEBSOCKET
         ws?.DispatchMessageQueue();
 #endif
     }
