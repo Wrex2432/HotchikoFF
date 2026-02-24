@@ -32,7 +32,7 @@ function teamImageUrl(imageFile) {
 
 function applyBallVisual(circleNode, imageNode, team) {
   const url = teamImageUrl(team.imageFile);
-  circleNode.style.backgroundColor = team.color;
+  circleNode.style.backgroundColor = url ? "transparent" : team.color;
 
   if (!url) {
     imageNode.classList.add("hidden");
@@ -56,6 +56,18 @@ function renderTeam() {
 }
 
 function setError(msg) { el("joinError").textContent = msg || ""; }
+
+function cooldownText(ms) {
+  const seconds = Math.max(1, Math.ceil(ms / 1000));
+  return `BOIL!! cooling down (${seconds}s)`;
+}
+
+function renderPowerState(playerState) {
+  const cooldownMs = Number(playerState.powerCooldownRemainingMs || 0);
+  const canUse = !!playerState.canUsePower && cooldownMs <= 0;
+  el("powerBtn").disabled = !canUse;
+  el("powerHint").textContent = canUse ? "BOIL!! is ready." : cooldownText(cooldownMs);
+}
 
 el("teamPrev").onclick = () => { teamIndex = (teamIndex - 1 + TEAMS.length) % TEAMS.length; renderTeam(); };
 el("teamNext").onclick = () => { teamIndex = (teamIndex + 1) % TEAMS.length; renderTeam(); };
@@ -100,9 +112,10 @@ function connectPlayerSocket(code, name, teamId) {
     if (msg.type === "phase" && msg.phase === "ended") {
       checkResult(code);
     }
-    if (msg.type === "powerActivated") {
+    if (msg.type === "powerActivated" && Number(msg.teamId) === Number(teamId)) {
+      const remaining = Number(msg.cooldownMs || 15000);
       el("powerBtn").disabled = true;
-      el("powerHint").textContent = "Power consumed. Wait for next pickup.";
+      el("powerHint").textContent = cooldownText(remaining);
     }
   };
 
@@ -110,8 +123,7 @@ function connectPlayerSocket(code, name, teamId) {
     const res = await fetch(`${API_BASE}/facechinko/player-state?code=${encodeURIComponent(code)}&uid=${encodeURIComponent(uid)}`);
     const state = await res.json();
     if (!state.ok) return;
-    el("powerBtn").disabled = !state.player.canUsePower;
-    if (state.player.canUsePower) el("powerHint").textContent = "Power is ready for your team!";
+    renderPowerState(state.player);
     if (state.player.phase === "ended") {
       clearInterval(poll);
       checkResult(code);
