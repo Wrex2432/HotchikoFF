@@ -57,6 +57,15 @@ function renderTeam() {
 
 function setError(msg) { el("joinError").textContent = msg || ""; }
 
+function prefillRoomCodeFromQuery() {
+  const params = new URLSearchParams(window.location.search || "");
+  const queryCode = (params.get("cd") || "").trim();
+  if (!queryCode) return;
+
+  const normalizedCode = queryCode.toUpperCase().slice(0, 8);
+  el("roomCode").value = normalizedCode;
+}
+
 function cooldownText(ms) {
   const seconds = Math.max(1, Math.ceil(ms / 1000));
   return `BOIL!! cooling down (${seconds}s)`;
@@ -146,3 +155,4 @@ el("powerBtn").onclick = () => {
 };
 
 renderTeam();
+prefillRoomCodeFromQuery();
