@@ -8,7 +8,7 @@ const path = require("path");
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*", // you can later lock this to your prod domain
-  "Access-Control-Allow-Methods": "GET,OPTIONS",
+  "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
@@ -51,6 +51,30 @@ function jsonResponse(res, bodyObj, code = 200) {
   res.end(JSON.stringify(bodyObj));
 }
 
+function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    let raw = "";
+    req.on("data", (chunk) => {
+      raw += chunk;
+      if (raw.length > 1_000_000) {
+        reject(new Error("payload_too_large"));
+        try {
+          req.destroy();
+        } catch (_) {}
+      }
+    });
+    req.on("end", () => {
+      if (!raw) return resolve({});
+      try {
+        resolve(JSON.parse(raw));
+      } catch (_) {
+        reject(new Error("invalid_json"));
+      }
+    });
+    req.on("error", reject);
+  });
+}
+
 function getFacechinkoSession(code) {
   const cleanCode = lettersOnly(code || "");
   const session = sessions.get(cleanCode);
@@ -69,7 +93,7 @@ const adapters = {
 };
 
 // create server
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const path = url.pathname;
 
@@ -154,11 +178,23 @@ const server = http.createServer((req, res) => {
     return jsonResponse(res, { ok: true, code: session.code, name, teams });
   }
 
-  if (path === "/facechinko/select-team" && req.method === "GET") {
-    const code = url.searchParams.get("code") || "";
-    const uid = (url.searchParams.get("uid") || "").trim();
-    const name = (url.searchParams.get("name") || "").trim();
-    const teamId = parseInt(url.searchParams.get("teamId") || "0", 10);
+  if (path === "/facechinko/select-team" && (req.method === "GET" || req.method === "POST")) {
+    let payload = {};
+    if (req.method === "POST") {
+      try {
+        payload = await readJsonBody(req);
+      } catch (e) {
+        return jsonResponse(res, { ok: false, reason: e.message || "invalid_request" });
+      }
+    }
+
+    const code = req.method === "POST" ? payload.code || "" : url.searchParams.get("code") || "";
+    const uid = (req.method === "POST" ? payload.uid || "" : url.searchParams.get("uid") || "").trim();
+    const name = (req.method === "POST" ? payload.name || "" : url.searchParams.get("name") || "").trim();
+    const teamId = parseInt(
+      req.method === "POST" ? payload.teamId || "0" : url.searchParams.get("teamId") || "0",
+      10
+    );
     const session = getFacechinkoSession(code);
 
     if (!session) return jsonResponse(res, { ok: false, reason: "code_not_found" });
@@ -171,7 +207,11 @@ const server = http.createServer((req, res) => {
 
     const info = adapters.facechinko.registerWebPlayer(session, { uid, name, teamId });
     if (!info) return jsonResponse(res, { ok: false, reason: "registration_failed" });
-    return jsonResponse(res, { ok: true, player: info });
+    return jsonResponse(res, {
+      ok: true,
+      player: info,
+      warning: req.method === "GET" ? "deprecated_use_post" : null,
+    });
   }
 
   if (path === "/facechinko/player-state" && req.method === "GET") {
