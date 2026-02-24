@@ -92,6 +92,24 @@ input {
 .team-circle:active { transform: scale(.97); }
 .team-circle.na { background: linear-gradient(140deg, #9fa7af 0%, #727c87 100%); color: #f7f7f7; }
 
+
+.team-choice {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+}
+
+.team-title {
+  font-weight: 800;
+  color: var(--steel-0);
+  background: #0b0f14a8;
+  border: 1px solid #ffffff2e;
+  border-radius: 8px;
+  padding: 4px 10px;
+  min-width: 160px;
+  text-align: center;
+}
+
 .team-image {
   position: absolute;
   inset: 0;
@@ -100,17 +118,6 @@ input {
   object-fit: cover;
   opacity: .95;
   filter: saturate(1.06) contrast(1.03);
-}
-
-.team-circle > #teamName,
-.team-circle > #teamImageName {
-  position: relative;
-  z-index: 2;
-  background: #0b0f14a8;
-  color: #f1f5fa;
-  padding: 3px 9px;
-  border-radius: 8px;
-  border: 1px solid #ffffff2e;
 }
 
 .primary {

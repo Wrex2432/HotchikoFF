@@ -51,7 +51,6 @@ function applyBallVisual(circleNode, imageNode, team) {
 function renderTeam() {
   const t = TEAMS[teamIndex];
   el("teamName").textContent = t.name;
-  el("teamImageName").textContent = `image: ${t.imageFile || "N/A"}`;
   applyBallVisual(el("teamCircle"), el("teamCircleImg"), t);
   el("teamCircle").style.color = t.teamId === 5 || t.teamId === 8 || t.teamId === 10 ? "#111" : "#fff";
 }
@@ -84,7 +83,6 @@ async function joinFlow() {
   el("joinPage").classList.add("hidden");
   el("controlPage").classList.remove("hidden");
   el("controlTeamName").textContent = team.name;
-  el("controlImageName").textContent = `image: ${team.imageFile || "N/A"}`;
   applyBallVisual(el("controlBall"), el("controlBallImg"), team);
 
   connectPlayerSocket(code, guestName, team.teamId);
