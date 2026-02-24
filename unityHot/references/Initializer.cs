@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using Newtonsoft.Json;
 using UnityEngine;
 
 #if ENABLE_INPUT_SYSTEM
@@ -17,24 +16,22 @@ public class Initializer : MonoBehaviour
         public int allowedNumberOfPlayers = 56;
         public int teamCount = 13;
         public int lobbyDurationSeconds = 30;
-        public string backendWsUrl = "wss://api.prologuebymetama.com/ws";
+        public string backendWsUrl = "ws://localhost:3000";
         public int roomCodeLength = 4;
     }
 
     [SerializeField] private BackendConnector backend;
-    [SerializeField] private GameLogic gameLogic;
+    [SerializeField] private BallRaceManager raceManager;
 
     private ControlConfig cfg;
-
-    // Lobby control
-    private float lobbyEndTime = float.PositiveInfinity; // prevents instant-start
-    private bool started = false;
-    private bool sessionReady = false; // only true after unityCreated
+    private float lobbyEndTime = float.PositiveInfinity;
+    private bool started;
+    private bool sessionReady;
 
     private void Start()
     {
         if (backend == null) backend = GetComponent<BackendConnector>();
-        if (gameLogic == null) gameLogic = GetComponent<GameLogic>();
+        if (raceManager == null) raceManager = FindObjectOfType<BallRaceManager>();
 
         cfg = LoadControl();
 
@@ -45,15 +42,14 @@ public class Initializer : MonoBehaviour
             return;
         }
 
-        if (gameLogic == null)
+        if (raceManager == null)
         {
-            Debug.LogError("[Initializer] Missing GameLogic reference/component.");
+            Debug.LogError("[Initializer] Missing BallRaceManager in scene.");
             enabled = false;
             return;
         }
 
         backend.SetServerUrl(cfg.backendWsUrl);
-
         backend.OnConnected += HandleConnected;
         backend.OnUnityCreated += HandleUnityCreated;
 
@@ -63,7 +59,6 @@ public class Initializer : MonoBehaviour
 
     private void OnDestroy()
     {
-        // Cleanly unsubscribe (prevents double-calls if object reloads)
         if (backend != null)
         {
             backend.OnConnected -= HandleConnected;
@@ -73,19 +68,18 @@ public class Initializer : MonoBehaviour
 
     private void Update()
     {
-        // Do nothing until we actually have a session code from backend
         if (!sessionReady) return;
 
         if (!started && Time.time >= lobbyEndTime)
         {
-            Debug.Log("[Initializer] Lobby timer elapsed → starting match.");
+            Debug.Log("[Initializer] Lobby timer elapsed -> starting match.");
             StartMatch();
             return;
         }
 
         if (!started && IsManualStartPressed())
         {
-            Debug.Log("[Initializer] Manual start pressed (N) → starting match.");
+            Debug.Log("[Initializer] Manual start pressed (N) -> starting match.");
             StartMatch();
             return;
         }
@@ -94,20 +88,15 @@ public class Initializer : MonoBehaviour
     private bool IsManualStartPressed()
     {
 #if ENABLE_INPUT_SYSTEM
-        // Input System (recommended in Unity 6+ projects)
         return Keyboard.current != null && Keyboard.current.nKey.wasPressedThisFrame;
 #else
-        // Legacy Input Manager
         return Input.GetKeyDown(KeyCode.N);
 #endif
     }
 
     private void HandleConnected()
     {
-        // When connected, we request the backend to create a session for this Unity host.
         var requestedCode = GenerateRoomCode(cfg.roomCodeLength);
-
-        Debug.Log($"[Initializer] Connected → sending unityCreate (requestedCode={requestedCode})");
 
         backend.SendUnityCreate(new BackendConnector.UnityCreateMsg
         {
@@ -121,35 +110,21 @@ public class Initializer : MonoBehaviour
 
     private void HandleUnityCreated(string code)
     {
-        // This is the moment the session is truly ready.
         sessionReady = true;
         started = false;
-
-        // Start lobby countdown only now (prevents instant-start bug).
         lobbyEndTime = Time.time + Mathf.Max(1, cfg.lobbyDurationSeconds);
 
-        Debug.Log($"[Initializer] unityCreated → code={code}, lobbyEndsIn={cfg.lobbyDurationSeconds}s (t={lobbyEndTime:0.00})");
-
-        // Configure game systems now that we have the official code.
-        gameLogic.Configure(cfg, backend, code);
-
-        // Tell backend we are in join phase.
+        Debug.Log($"[Initializer] unityCreated -> code={code}, lobbyEndsIn={cfg.lobbyDurationSeconds}s");
         backend.SendPhase("join");
     }
 
     private void StartMatch()
     {
-        // Guard: must have a created session
-        if (!sessionReady) return;
-
-        // Guard: only start once
-        if (started) return;
+        if (!sessionReady || started) return;
 
         started = true;
-
-        Debug.Log("[Initializer] Match starting → phase=active, BeginGameplay()");
         backend.SendPhase("active");
-        gameLogic.BeginGameplay();
+        raceManager.StartRace();
     }
 
     private ControlConfig LoadControl()
@@ -166,7 +141,7 @@ public class Initializer : MonoBehaviour
         try
         {
             var json = File.ReadAllText(path);
-            var parsed = JsonConvert.DeserializeObject<ControlConfig>(json);
+            var parsed = JsonUtility.FromJson<ControlConfig>(json);
             return parsed ?? new ControlConfig();
         }
         catch (Exception e)
@@ -178,9 +153,8 @@ public class Initializer : MonoBehaviour
 
     private string GenerateRoomCode(int length)
     {
-        const string chars = "ABCDEFGHJKLMNPQRSTUVWXYZ"; // no I/O/1/0 confusion
+        const string chars = "ABCDEFGHJKLMNPQRSTUVWXYZ";
         var rng = new System.Random();
-
         var finalLen = Mathf.Max(4, length);
         var result = new char[finalLen];
 
