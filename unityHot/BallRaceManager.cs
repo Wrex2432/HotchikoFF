@@ -11,6 +11,7 @@ public class BallRaceManager : MonoBehaviour
     [SerializeField] private BackendConnector backend;
     [SerializeField] private bool listenToBackendPlayers = true;
     [SerializeField] private bool verboseLogs = true;
+    [SerializeField] private bool keepBallWhenPlayerLeaves = true;
 
     [Header("Ball Setup")]
     [SerializeField] private RaceBall ballPrefab;
@@ -56,6 +57,7 @@ public class BallRaceManager : MonoBehaviour
     {
         if (backend == null) return;
         backend.OnPlayerChanged += HandlePlayerChanged;
+        backend.OnPlayerLeft += HandlePlayerLeft;
         backend.OnGameResult += HandleGameResult;
         backend.OnUnityCreated += HandleUnityCreated;
         backend.OnPaused += HandlePaused;
@@ -66,6 +68,7 @@ public class BallRaceManager : MonoBehaviour
     {
         if (backend == null) return;
         backend.OnPlayerChanged -= HandlePlayerChanged;
+        backend.OnPlayerLeft -= HandlePlayerLeft;
         backend.OnGameResult -= HandleGameResult;
         backend.OnUnityCreated -= HandleUnityCreated;
         backend.OnPaused -= HandlePaused;
@@ -135,6 +138,30 @@ public class BallRaceManager : MonoBehaviour
         if (verboseLogs) Debug.Log($"[Facechinko] Spawned {p.name} on team {p.teamIndex}.");
     }
 
+
+
+    private void HandlePlayerLeft(BackendConnector.FacechinkoPlayerMsg msg)
+    {
+        if (!listenToBackendPlayers || msg?.player == null) return;
+
+        var p = msg.player;
+        if (string.IsNullOrWhiteSpace(p.uid)) return;
+
+        if (keepBallWhenPlayerLeaves)
+        {
+            if (verboseLogs) Debug.Log($"[Facechinko] Player left ({p.uid}); keeping spawned ball.");
+            return;
+        }
+
+        if (!ballByUid.TryGetValue(p.uid, out var ball) || ball == null) return;
+
+        spawnedBalls.Remove(ball);
+        finishOrder.Remove(ball);
+        ballByUid.Remove(p.uid);
+        Destroy(ball.gameObject);
+
+        if (verboseLogs) Debug.Log($"[Facechinko] Removed ball for player {p.uid}.");
+    }
 
     private void HandlePaused(string reason)
     {

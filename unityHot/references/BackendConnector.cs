@@ -22,6 +22,7 @@ public class BackendConnector : MonoBehaviour
     public event Action<string> OnDisconnected;
     public event Action<string> OnUnityCreated;
     public event Action<FacechinkoPlayerMsg> OnPlayerChanged;
+    public event Action<FacechinkoPlayerMsg> OnPlayerLeft;
     public event Action<FacechinkoGameResultMsg> OnGameResult;
     public event Action<string> OnPaused;
     public event Action OnEnded;
@@ -209,7 +210,7 @@ public class BackendConnector : MonoBehaviour
             return;
         }
 
-        if (type == "playerRegistered" || type == "playerJoined" || type == "playerResumed")
+        if (type == "playerRegistered" || type == "playerJoined" || type == "playerResumed" || type == "playerLeft")
         {
             var msg = new FacechinkoPlayerMsg
             {
@@ -222,7 +223,11 @@ public class BackendConnector : MonoBehaviour
                 }
             };
 
-            if (!string.IsNullOrWhiteSpace(msg.player.uid)) OnPlayerChanged?.Invoke(msg);
+            if (!string.IsNullOrWhiteSpace(msg.player.uid))
+            {
+                if (type == "playerLeft") OnPlayerLeft?.Invoke(msg);
+                else OnPlayerChanged?.Invoke(msg);
+            }
             return;
         }
 
