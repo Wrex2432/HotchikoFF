@@ -30,17 +30,29 @@ function teamImageUrl(imageFile) {
   return `${ASSET_BASE}/${encodeURIComponent(imageFile)}`;
 }
 
-function applyBallVisual(node, team) {
-  node.style.backgroundColor = team.color;
+function applyBallVisual(circleNode, imageNode, team) {
   const url = teamImageUrl(team.imageFile);
-  node.style.backgroundImage = url ? `linear-gradient(#0002,#0002), url('${url}')` : "none";
+  circleNode.style.backgroundColor = team.color;
+
+  if (!url) {
+    imageNode.classList.add("hidden");
+    imageNode.removeAttribute("src");
+    return;
+  }
+
+  imageNode.classList.remove("hidden");
+  imageNode.src = url;
+  imageNode.onerror = () => {
+    imageNode.classList.add("hidden");
+    imageNode.removeAttribute("src");
+  };
 }
 
 function renderTeam() {
   const t = TEAMS[teamIndex];
   el("teamName").textContent = t.name;
   el("teamImageName").textContent = `image: ${t.imageFile || "N/A"}`;
-  applyBallVisual(el("teamCircle"), t);
+  applyBallVisual(el("teamCircle"), el("teamCircleImg"), t);
   el("teamCircle").style.color = t.teamId === 5 || t.teamId === 8 || t.teamId === 10 ? "#111" : "#fff";
 }
 
@@ -73,7 +85,7 @@ async function joinFlow() {
   el("controlPage").classList.remove("hidden");
   el("controlTeamName").textContent = team.name;
   el("controlImageName").textContent = `image: ${team.imageFile || "N/A"}`;
-  applyBallVisual(el("controlBall"), team);
+  applyBallVisual(el("controlBall"), el("controlBallImg"), team);
 
   connectPlayerSocket(code, guestName, team.teamId);
 }

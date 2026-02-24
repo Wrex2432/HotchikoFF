@@ -17,8 +17,9 @@
       <div class="carousel-wrap">
         <button id="teamPrev" class="nav">◀</button>
         <div id="teamCircle" class="team-circle na">
+          <img id="teamCircleImg" class="team-image hidden" alt="team preview" />
           <div id="teamName">N/A</div>
-          <div id="teamImageName" class="tiny">temp: n/a</div>
+          <div id="teamImageName" class="tiny">image: N/A</div>
         </div>
         <button id="teamNext" class="nav">▶</button>
       </div>
@@ -29,7 +30,9 @@
 
     <section id="controlPage" class="card hidden">
       <h2 id="controlTeamName">Team</h2>
-      <div id="controlBall" class="ball"></div>
+      <div id="controlBall" class="ball">
+        <img id="controlBallImg" class="ball-image hidden" alt="team ball" />
+      </div>
       <p id="controlImageName" class="tiny center"></p>
       <button id="powerBtn" class="primary" disabled>POWER</button>
       <p id="powerHint" class="muted">Waiting for team power pickup in game.</p>
