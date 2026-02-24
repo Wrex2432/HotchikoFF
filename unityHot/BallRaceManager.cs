@@ -58,6 +58,8 @@ public class BallRaceManager : MonoBehaviour
         backend.OnPlayerChanged += HandlePlayerChanged;
         backend.OnGameResult += HandleGameResult;
         backend.OnUnityCreated += HandleUnityCreated;
+        backend.OnPaused += HandlePaused;
+        backend.OnEnded += HandleEnded;
     }
 
     private void OnDisable()
@@ -66,6 +68,8 @@ public class BallRaceManager : MonoBehaviour
         backend.OnPlayerChanged -= HandlePlayerChanged;
         backend.OnGameResult -= HandleGameResult;
         backend.OnUnityCreated -= HandleUnityCreated;
+        backend.OnPaused -= HandlePaused;
+        backend.OnEnded -= HandleEnded;
     }
 
     private void Start()
@@ -131,6 +135,19 @@ public class BallRaceManager : MonoBehaviour
         if (verboseLogs) Debug.Log($"[Facechinko] Spawned {p.name} on team {p.teamIndex}.");
     }
 
+
+    private void HandlePaused(string reason)
+    {
+        RaceStarted = false;
+        if (verboseLogs) Debug.Log($"[Facechinko] Paused: {reason}");
+    }
+
+    private void HandleEnded()
+    {
+        RaceStarted = false;
+        resultSent = true;
+        if (verboseLogs) Debug.Log("[Facechinko] Session ended.");
+    }
     private void HandleGameResult(BackendConnector.FacechinkoGameResultMsg msg)
     {
         RaceStarted = false;
