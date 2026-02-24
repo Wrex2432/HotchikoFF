@@ -59,6 +59,7 @@ public class BallRaceManager : MonoBehaviour
         backend.OnPlayerChanged += HandlePlayerChanged;
         backend.OnPlayerLeft += HandlePlayerLeft;
         backend.OnGameResult += HandleGameResult;
+        backend.OnPowerActivated += HandlePowerActivated;
         backend.OnUnityCreated += HandleUnityCreated;
         backend.OnPaused += HandlePaused;
         backend.OnEnded += HandleEnded;
@@ -70,6 +71,7 @@ public class BallRaceManager : MonoBehaviour
         backend.OnPlayerChanged -= HandlePlayerChanged;
         backend.OnPlayerLeft -= HandlePlayerLeft;
         backend.OnGameResult -= HandleGameResult;
+        backend.OnPowerActivated -= HandlePowerActivated;
         backend.OnUnityCreated -= HandleUnityCreated;
         backend.OnPaused -= HandlePaused;
         backend.OnEnded -= HandleEnded;
@@ -180,6 +182,15 @@ public class BallRaceManager : MonoBehaviour
         RaceStarted = false;
         if (verboseLogs)
             Debug.Log($"[Facechinko] Backend gameResult winnerTeamIndex={msg.winningTeamIndex}");
+    }
+
+    private void HandlePowerActivated(BackendConnector.FacechinkoPowerActivatedMsg msg)
+    {
+        if (backend == null || msg == null) return;
+
+        // BOIL now triggers the same path as the debug key flow:
+        // backend.SendUnityMsg({ kind: "powerReady", teamIndex, powerId })
+        NotifyTeamPowerPickup(Mathf.Max(0, msg.teamIndex), msg.powerId);
     }
 
     public void StartRace()
