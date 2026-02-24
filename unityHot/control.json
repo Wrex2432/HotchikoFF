@@ -1,0 +1,9 @@
+{
+  "gameType": "facechinko",
+  "location": "CINEMA_A",
+  "allowedNumberOfPlayers": 56,
+  "teamCount": 13,
+  "lobbyDurationSeconds": 30,
+  "backendWsUrl": "ws://localhost:3000",
+  "roomCodeLength": 4
+}
