@@ -1,4 +1,4 @@
-const API_BASE = localStorage.getItem("facechinko_api_base") || `${location.protocol}//${location.hostname}:3000`;
+const API_BASE = localStorage.getItem("facechinko_api_base") || "https://api.prologuebymetama.com";
 const WS_BASE = localStorage.getItem("facechinko_ws_base") || "wss://api.prologuebymetama.com/ws";
 const ASSET_BASE = localStorage.getItem("facechinko_asset_base") || "assets";
 
