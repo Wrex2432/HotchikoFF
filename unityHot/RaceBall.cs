@@ -14,7 +14,7 @@ public class RaceBall : MonoBehaviour
     public string uid;
     public string playerName;
     public int teamIndex;
-    public string tempImageName;
+    public string teamImageFileName;
 
     [HideInInspector] public Rigidbody2D rb;
     [HideInInspector] public Collider2D col;
@@ -31,19 +31,19 @@ public class RaceBall : MonoBehaviour
 
     private static readonly string[] TeamImageNames = new string[]
     {
-        "team_dana_greggy_temp",
-        "team_mond_saeid_temp",
-        "team_jill_alvin_temp",
-        "team_sam_ninya_temp",
-        "team_ynna_temp",
-        "team_jasper_temp",
-        "team_jordy_temp",
-        "team_media_temp",
-        "team_strat_temp",
-        "team_hr_admin_temp",
-        "team_finance_temp",
-        "team_micco_temp",
-        "team_bev_temp"
+        "TeamDana&Greggy",
+        "TeamMond&Saeid",
+        "TeamJill&Alvin",
+        "TeamSam&Ninya",
+        "TeamYnna",
+        "TeamJasper",
+        "TeamJordy",
+        "MEDIA",
+        "STRAT",
+        "HR&ADMIN",
+        "FINANCE",
+        "TeamMicco",
+        "TeamBev"
     };
 
     private void Awake()
@@ -60,7 +60,7 @@ public class RaceBall : MonoBehaviour
         uid = newUid;
         playerName = string.IsNullOrWhiteSpace(newPlayerName) ? $"Player {id + 1}" : newPlayerName;
         teamIndex = Mathf.Clamp(newTeamIndex, 0, TeamColors.Length - 1);
-        tempImageName = TeamImageNames[teamIndex];
+        teamImageFileName = TeamImageNames[teamIndex] + ".png";
 
         ballName = !string.IsNullOrWhiteSpace(uid)
             ? $"{playerName} ({uid})"
@@ -74,9 +74,9 @@ public class RaceBall : MonoBehaviour
         {
             spriteRenderer.color = TeamColors[teamIndex];
 
-            // Optional temp sprite lookup: put placeholder sprites under Resources/team-balls/
-            // named exactly as TeamImageNames entries.
-            var maybeSprite = Resources.Load<Sprite>($"team-balls/{tempImageName}");
+            // Optional sprite lookup: put placeholders under Resources/team-balls/
+            // with names matching TeamImageNames entries above (without .png).
+            var maybeSprite = Resources.Load<Sprite>($"team-balls/{TeamImageNames[teamIndex]}");
             if (maybeSprite != null)
             {
                 spriteRenderer.sprite = maybeSprite;
