@@ -130,11 +130,25 @@ public class Initializer : MonoBehaviour
     private ControlConfig LoadControl()
     {
         var root = Directory.GetParent(Application.dataPath)?.FullName ?? Application.dataPath;
-        var path = Path.Combine(root, "control.json");
-
-        if (!File.Exists(path))
+        var candidatePaths = new[]
         {
-            Debug.LogError("[Initializer] Missing control.json at project root. Using defaults.");
+            Path.Combine(root, "control.json"),
+            Path.Combine(Application.dataPath, "control.json"),
+        };
+
+        string path = null;
+        for (int i = 0; i < candidatePaths.Length; i++)
+        {
+            if (File.Exists(candidatePaths[i]))
+            {
+                path = candidatePaths[i];
+                break;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            Debug.LogError($"[Initializer] Missing control.json. Tried: {string.Join(" | ", candidatePaths)}. Using defaults.");
             return new ControlConfig();
         }
 
