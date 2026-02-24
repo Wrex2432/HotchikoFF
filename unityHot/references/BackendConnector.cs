@@ -24,6 +24,7 @@ public class BackendConnector : MonoBehaviour
     public event Action<FacechinkoPlayerMsg> OnPlayerChanged;
     public event Action<FacechinkoPlayerMsg> OnPlayerLeft;
     public event Action<FacechinkoGameResultMsg> OnGameResult;
+    public event Action<FacechinkoPowerActivatedMsg> OnPowerActivated;
     public event Action<string> OnPaused;
     public event Action OnEnded;
 
@@ -60,6 +61,15 @@ public class BackendConnector : MonoBehaviour
         public int winningTeamIndex;
         public int winningTeamId;
         public string mvpName;
+    }
+
+    [Serializable]
+    public class FacechinkoPowerActivatedMsg
+    {
+        public string type;
+        public int teamIndex;
+        public int teamId;
+        public string powerId;
     }
 
     public void SetServerUrl(string url) => serverUrl = url;
@@ -241,6 +251,19 @@ public class BackendConnector : MonoBehaviour
                 mvpName = ExtractString(json, "mvpName"),
             };
             OnGameResult?.Invoke(result);
+            return;
+        }
+
+        if (type == "powerActivated")
+        {
+            var msg = new FacechinkoPowerActivatedMsg
+            {
+                type = type,
+                teamIndex = ExtractInt(json, "teamIndex"),
+                teamId = ExtractInt(json, "teamId"),
+                powerId = ExtractString(json, "powerId") ?? "",
+            };
+            OnPowerActivated?.Invoke(msg);
             return;
         }
 
